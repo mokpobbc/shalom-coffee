@@ -17,87 +17,19 @@ const CALL_SCREEN_TIME = 10000; // 10초
 const DISPLAY_TIME = 10 * 60 * 1000; // 10분
 
 // ==================================================
-// 🔔 음료 완성 / 재호출 알림음
+// 🔔 본당 TV 음료 완성 / 재호출 전용 알림음
 // ==================================================
-
 const playDrinkReadySound = () => {
   try {
-    const AudioContextClass =
-      window.AudioContext ||
-      (
-        window as typeof window & {
-          webkitAudioContext: typeof AudioContext;
-        }
-      ).webkitAudioContext;
+    const audio = new Audio("/sounds/drink-ready.mp3");
+    audio.volume = 1.0;
+    audio.currentTime = 0;
 
-    const audioContext = new AudioContextClass();
-
-    const playTone = (
-      frequency: number,
-      startTime: number,
-      duration: number
-    ) => {
-      const oscillator =
-        audioContext.createOscillator();
-
-      const gainNode =
-        audioContext.createGain();
-
-      oscillator.type = "sine";
-
-      oscillator.frequency.setValueAtTime(
-        frequency,
-        audioContext.currentTime + startTime
-      );
-
-      gainNode.gain.setValueAtTime(
-        0.001,
-        audioContext.currentTime + startTime
-      );
-
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.3,
-        audioContext.currentTime +
-          startTime +
-          0.03
-      );
-
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.001,
-        audioContext.currentTime +
-          startTime +
-          duration
-      );
-
-      oscillator.connect(gainNode);
-      gainNode.connect(
-        audioContext.destination
-      );
-
-      oscillator.start(
-        audioContext.currentTime + startTime
-      );
-
-      oscillator.stop(
-        audioContext.currentTime +
-          startTime +
-          duration
-      );
-    };
-
-    // 🎵 딩 — 동 — 딩!
-    playTone(659, 0, 0.25);
-    playTone(784, 0.28, 0.25);
-    playTone(1047, 0.56, 0.4);
-
-    setTimeout(() => {
-      audioContext.close();
-    }, 1200);
+    void audio.play().catch((error) => {
+      console.error("drink-ready.mp3 재생 오류:", error);
+    });
   } catch (error) {
-    console.error(
-      "음료 호출 알림음 재생 오류:",
-      error
-    );
+    console.error("drink-ready.mp3 재생 오류:", error);
   }
 };
 
