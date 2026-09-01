@@ -1086,14 +1086,4 @@ export default function KitchenPage() {
       </div>
     </main>
   );
-                  <button
-                    onClick={() => pickupOrder(order.id)}
-                    disabled={pickupId === order.id}
-                    className="mt-3 w-full rounded-2xl bg-green-600 py-5 text-xl font-bold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {pickupId === order.id
-                      ? "처리 중..."
-                      : "☕ 수령 완료"}
-                  </button>
-
 }
