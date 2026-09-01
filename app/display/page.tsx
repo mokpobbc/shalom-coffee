@@ -17,81 +17,85 @@ const CALL_SCREEN_TIME = 10000; // 10초
 const DISPLAY_TIME = 10 * 60 * 1000; // 10분
 
 // ==================================================
-// 🔊 음료 완성 / 재호출 MP3 알림음
+// 🔔 음료 완성 / 재호출 알림음
 // ==================================================
-
-let drinkReadyAudio: HTMLAudioElement | null = null;
-
-const prepareDrinkReadySound = () => {
-  if (typeof window === "undefined") return;
-
-  if (!drinkReadyAudio) {
-    drinkReadyAudio = new Audio(
-      "/sounds/drink-ready.mp3"
-    );
-
-    drinkReadyAudio.preload = "auto";
-    drinkReadyAudio.volume = 1.0;
-  }
-
-  // 브라우저에게 오디오 사용 의도를 알려줌
-  drinkReadyAudio.load();
-};
-
-const unlockDrinkReadySound = () => {
-  try {
-    prepareDrinkReadySound();
-
-    if (!drinkReadyAudio) return;
-
-    // 사용자 클릭으로 오디오 재생 권한 확보
-    drinkReadyAudio
-      .play()
-      .then(() => {
-        drinkReadyAudio?.pause();
-
-        if (drinkReadyAudio) {
-          drinkReadyAudio.currentTime = 0;
-        }
-
-        console.log(
-          "🔊 디스플레이 알림음 활성화 완료"
-        );
-      })
-      .catch((error) => {
-        console.log(
-          "알림음 활성화 대기:",
-          error
-        );
-      });
-  } catch (error) {
-    console.error(
-      "알림음 준비 오류:",
-      error
-    );
-  }
-};
 
 const playDrinkReadySound = () => {
   try {
-    prepareDrinkReadySound();
+    const AudioContextClass =
+      window.AudioContext ||
+      (
+        window as typeof window & {
+          webkitAudioContext: typeof AudioContext;
+        }
+      ).webkitAudioContext;
 
-    if (!drinkReadyAudio) return;
+    const audioContext = new AudioContextClass();
 
-    drinkReadyAudio.pause();
-    drinkReadyAudio.currentTime = 0;
+    const playTone = (
+      frequency: number,
+      startTime: number,
+      duration: number
+    ) => {
+      const oscillator =
+        audioContext.createOscillator();
 
-    drinkReadyAudio
-      .play()
-      .catch((error) => {
-        console.error(
-          "음료 호출 알림음 재생 오류:",
-          error
-        );
-      });
+      const gainNode =
+        audioContext.createGain();
+
+      oscillator.type = "sine";
+
+      oscillator.frequency.setValueAtTime(
+        frequency,
+        audioContext.currentTime + startTime
+      );
+
+      gainNode.gain.setValueAtTime(
+        0.001,
+        audioContext.currentTime + startTime
+      );
+
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.3,
+        audioContext.currentTime +
+          startTime +
+          0.03
+      );
+
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.001,
+        audioContext.currentTime +
+          startTime +
+          duration
+      );
+
+      oscillator.connect(gainNode);
+      gainNode.connect(
+        audioContext.destination
+      );
+
+      oscillator.start(
+        audioContext.currentTime + startTime
+      );
+
+      oscillator.stop(
+        audioContext.currentTime +
+          startTime +
+          duration
+      );
+    };
+
+    // 🎵 딩 — 동 — 딩!
+    playTone(659, 0, 0.25);
+    playTone(784, 0.28, 0.25);
+    playTone(1047, 0.56, 0.4);
+
+    setTimeout(() => {
+      audioContext.close();
+    }, 1200);
   } catch (error) {
     console.error(
-      "음료 호출 알림음 오류:",
+      "음료 호출 알림음 재생 오류:",
       error
     );
   }
@@ -131,10 +135,7 @@ export default function DisplayPage() {
         "id, name, menu, quantity, status, created_at, call_count"
       )
       .eq("status", "completed")
-      .gte(
-        "created_at",
-        tenMinutesAgo
-      )
+      .gte("created_at", tenMinutesAgo)
       .order("created_at", {
         ascending: false,
       });
@@ -189,7 +190,7 @@ export default function DisplayPage() {
   // ==================================================
 
   const showCallScreen = (order: Order) => {
-    // 🔊 MP3 알림음
+    // 알림음
     playDrinkReadySound();
 
     // 기존 타이머 제거
@@ -210,29 +211,7 @@ export default function DisplayPage() {
   // ==================================================
 
   useEffect(() => {
-    // 알림음 파일 미리 준비
-    prepareDrinkReadySound();
-
-    // 초기 주문
     fetchInitialOrders();
-
-    // ================================================
-    // 🔊 사용자 클릭 시 오디오 활성화
-    // ================================================
-
-    window.addEventListener(
-      "click",
-      unlockDrinkReadySound
-    );
-
-    window.addEventListener(
-      "touchstart",
-      unlockDrinkReadySound
-    );
-
-    // ================================================
-    // ⚡ Supabase Realtime
-    // ================================================
 
     const channel = supabase
       .channel("display-orders")
@@ -279,7 +258,7 @@ export default function DisplayPage() {
               ];
             });
 
-            // 초기 로딩 이후의 새 주문만 호출
+            // 초기 로딩 이후 들어온 주문이면 호출
             if (!firstLoad.current) {
               showCallScreen(newOrder);
             }
@@ -344,10 +323,7 @@ export default function DisplayPage() {
               ];
             });
 
-            // ========================================
             // 새롭게 완료된 주문
-            // ========================================
-
             if (
               previousCallCount ===
               undefined
@@ -463,16 +439,6 @@ export default function DisplayPage() {
         );
       }
 
-      window.removeEventListener(
-        "click",
-        unlockDrinkReadySound
-      );
-
-      window.removeEventListener(
-        "touchstart",
-        unlockDrinkReadySound
-      );
-
       supabase.removeChannel(
         channel
       );
@@ -513,7 +479,7 @@ export default function DisplayPage() {
           </p>
 
           <p className="mt-16 text-xl opacity-70">
-            샬롬커피 · 주님의교회 청년부
+            샬롬커피 · 주님의교회 청년청소년부
           </p>
 
         </div>
@@ -565,7 +531,7 @@ export default function DisplayPage() {
         </h1>
 
         <p className="mt-3 text-2xl font-semibold text-[#795548]">
-          주님의교회 청년부
+          주님의교회 청년청소년부
         </p>
 
       </header>

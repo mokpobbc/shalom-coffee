@@ -63,13 +63,12 @@ const getElapsedTime = (createdAt: string) => {
 
 export default function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [makingOrders, setMakingOrders] = useState<Order[]>([]);
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [recallingId, setRecallingId] = useState<number | null>(null);
   const [pickupId, setPickupId] = useState<number | null>(null);
-  const [realtimeConnected, setRealtimeConnected] = useState(true);
-  const [browserOnline, setBrowserOnline] = useState(true);
 
   // 시간 표시를 갱신하기 위한 상태
   const [, setCurrentTime] = useState(Date.now());
@@ -83,7 +82,7 @@ export default function KitchenPage() {
       Date.now() - 10 * 60 * 1000
     ).toISOString();
 
-    const [pendingResult, completedResult] = await Promise.all([
+    const [pendingResult, makingResult, completedResult] = await Promise.all([
       supabase
         .from("orders")
         .select("*")
@@ -91,6 +90,12 @@ export default function KitchenPage() {
         .order("created_at", {
           ascending: true,
         }),
+
+      supabase
+        .from("orders")
+        .select("*")
+        .eq("status", "making")
+        .order("created_at", { ascending: true }),
 
       supabase
         .from("orders")
@@ -110,6 +115,12 @@ export default function KitchenPage() {
       );
     } else {
       setOrders(pendingResult.data ?? []);
+    }
+
+    if (makingResult.error) {
+      console.error("제조 중 주문 불러오기 오류:", makingResult.error);
+    } else {
+      setMakingOrders(makingResult.data ?? []);
     }
 
     if (completedResult.error) {
@@ -152,24 +163,6 @@ export default function KitchenPage() {
 
   useEffect(() => {
     fetchInitialData();
-
-    // ----------------------------------------------
-    // 🌐 인터넷 연결 상태
-    // ----------------------------------------------
-
-    setBrowserOnline(navigator.onLine);
-
-    const handleOnline = () => {
-      setBrowserOnline(true);
-    };
-
-    const handleOffline = () => {
-      setBrowserOnline(false);
-      setRealtimeConnected(false);
-    };
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
 
     // ----------------------------------------------
     // ⏰ 주문 시간 실시간 갱신
@@ -254,7 +247,41 @@ export default function KitchenPage() {
             payload.new as Order;
 
           // ==========================================
-          // pending → completed
+          // pending → making (주문 확인)
+          // ==========================================
+
+          if (updatedOrder.status === "making") {
+            setOrders((currentOrders) =>
+              currentOrders.filter(
+                (order) => order.id !== updatedOrder.id
+              )
+            );
+
+            setMakingOrders((currentOrders) => {
+              const exists = currentOrders.some(
+                (order) => order.id === updatedOrder.id
+              );
+
+              if (exists) {
+                return currentOrders.map((order) =>
+                  order.id === updatedOrder.id
+                    ? updatedOrder
+                    : order
+                );
+              }
+
+              return [...currentOrders, updatedOrder].sort(
+                (a, b) =>
+                  new Date(a.created_at).getTime() -
+                  new Date(b.created_at).getTime()
+              );
+            });
+
+            return;
+          }
+
+          // ==========================================
+          // making → completed (음료 완성)
           // ==========================================
 
           if (
@@ -269,6 +296,12 @@ export default function KitchenPage() {
                     order.id !==
                     updatedOrder.id
                 )
+            );
+
+            setMakingOrders((currentOrders) =>
+              currentOrders.filter(
+                (order) => order.id !== updatedOrder.id
+              )
             );
 
             // 완료 목록에 추가
@@ -360,6 +393,15 @@ export default function KitchenPage() {
               )
           );
 
+          setMakingOrders(
+            (currentOrders) =>
+              currentOrders.filter(
+                (order) =>
+                  order.id !==
+                  deletedId
+              )
+          );
+
           setCompletedOrders(
             (currentOrders) =>
               currentOrders.filter(
@@ -376,16 +418,6 @@ export default function KitchenPage() {
           "주문 Realtime 상태:",
           status
         );
-
-        if (status === "SUBSCRIBED") {
-          setRealtimeConnected(true);
-        } else if (
-          status === "CHANNEL_ERROR" ||
-          status === "TIMED_OUT" ||
-          status === "CLOSED"
-        ) {
-          setRealtimeConnected(false);
-        }
       });
 
     // 30초마다 10분 지난 완료 주문 제거
@@ -397,22 +429,53 @@ export default function KitchenPage() {
     return () => {
       clearInterval(timeInterval);
       clearInterval(expiryInterval);
-
-      window.removeEventListener(
-        "online",
-        handleOnline
-      );
-
-      window.removeEventListener(
-        "offline",
-        handleOffline
-      );
-
       supabase.removeChannel(
         channel
       );
     };
   }, []);
+
+  // ==================================================
+  // 👀 주문 확인 / 제조 시작
+  // pending → making
+  // ==================================================
+
+  const startMakingOrder = async (id: number) => {
+    setUpdatingId(id);
+
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        status: "making",
+      })
+      .eq("id", id)
+      .eq("status", "pending");
+
+    if (error) {
+      console.error("주문 확인 처리 오류:", error);
+      alert("주문 확인 처리에 실패했습니다.");
+      setUpdatingId(null);
+      return;
+    }
+
+    setOrders((currentOrders) =>
+      currentOrders.filter((order) => order.id !== id)
+    );
+
+    const confirmedOrder = orders.find((order) => order.id === id);
+
+    if (confirmedOrder) {
+      setMakingOrders((currentOrders) => [
+        ...currentOrders,
+        {
+          ...confirmedOrder,
+          status: "making",
+        },
+      ]);
+    }
+
+    setUpdatingId(null);
+  };
 
   // ==================================================
   // 음료 완성
@@ -563,20 +626,6 @@ export default function KitchenPage() {
         ========================= */}
 
         <header className="mb-8">
-          <div className="mb-4 flex justify-end">
-            <div
-              className={`rounded-full px-4 py-2 text-sm font-bold ${
-                browserOnline && realtimeConnected
-                  ? "bg-green-100 text-green-700"
-                  : "bg-red-100 text-red-700"
-              }`}
-            >
-              {browserOnline && realtimeConnected
-                ? "🟢 실시간 연결됨"
-                : "🔴 연결 끊김"}
-            </div>
-          </div>
-
           <div className="flex items-center justify-between">
 
             <div>
@@ -771,22 +820,14 @@ export default function KitchenPage() {
 
                   <button
                     onClick={() =>
-                      completeOrder(
-                        order.id
-                      )
+                      startMakingOrder(order.id)
                     }
-                    disabled={
-                      updatingId ===
-                      order.id
-                    }
+                    disabled={updatingId === order.id}
                     className="w-full rounded-2xl bg-[#5D4037] py-6 text-2xl font-bold text-white transition hover:bg-[#4E342E] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-
-                    {updatingId ===
-                    order.id
-                      ? "처리 중..."
-                      : "✅ 음료 완성"}
-
+                    {updatingId === order.id
+                      ? "확인 중..."
+                      : "👀 주문 확인"}
                   </button>
 
                 </div>
@@ -798,6 +839,80 @@ export default function KitchenPage() {
           )}
 
         </section>
+
+        {/* =========================
+            제조 중
+        ========================= */}
+        {makingOrders.length > 0 && (
+          <section className="mt-12">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-[#3E2723]">
+                  👨‍🍳 제조 중
+                </h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  주문 확인 후 제조 중인 음료입니다.
+                </p>
+              </div>
+
+              <span className="text-gray-500">
+                {makingOrders.length}건
+              </span>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+              {makingOrders.map((order) => (
+                <div
+                  key={order.id}
+                  className="rounded-[2rem] bg-white p-7 shadow-lg"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-400">제조 중</p>
+                      <h3 className="mt-1 text-3xl font-bold text-[#3E2723]">
+                        {order.name}님
+                      </h3>
+                    </div>
+                    <span className="rounded-full bg-[#F3EAE4] px-4 py-2 text-sm font-bold text-[#5D4037]">
+                      제조 중
+                    </span>
+                  </div>
+
+                  <div className="mt-5 rounded-2xl bg-[#F8F5EF] p-5">
+                    <div className="flex items-center gap-4">
+                      <span className="text-5xl">
+                        {order.menu === "아메리카노" ? "☕" : "🍑"}
+                      </span>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-800">
+                          {order.menu}
+                        </p>
+                        <p className="mt-1 text-gray-500">
+                          {order.menu === "아메리카노"
+                            ? `${order.temperature} · ${order.taste}`
+                            : "복숭아 아이스티"}
+                        </p>
+                        <p className="mt-2 text-lg font-bold text-gray-700">
+                          {order.quantity}잔
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => completeOrder(order.id)}
+                    disabled={updatingId === order.id}
+                    className="mt-5 w-full rounded-2xl bg-[#5D4037] py-5 text-xl font-bold text-white transition hover:bg-[#4E342E] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {updatingId === order.id
+                      ? "처리 중..."
+                      : "✅ 음료 완성"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* =========================
             최근 완료
@@ -971,4 +1086,14 @@ export default function KitchenPage() {
       </div>
     </main>
   );
+                  <button
+                    onClick={() => pickupOrder(order.id)}
+                    disabled={pickupId === order.id}
+                    className="mt-3 w-full rounded-2xl bg-green-600 py-5 text-xl font-bold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {pickupId === order.id
+                      ? "처리 중..."
+                      : "☕ 수령 완료"}
+                  </button>
+
 }
