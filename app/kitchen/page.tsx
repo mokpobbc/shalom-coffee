@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+type OrderStatus = "pending" | "confirmed" | "preparing" | "completed" | "picked_up";
+
 type Order = {
   id: number;
   name: string;
@@ -10,24 +12,18 @@ type Order = {
   temperature: string | null;
   taste: string | null;
   quantity: number;
-  status: string;
+  status: OrderStatus;
   created_at: string;
-  completed_at: string | null;
+  completed_at?: string | null;
   call_count: number;
 };
-
-// ==================================================
-// 🔊 새 주문 MP3 알림음
-// ==================================================
 
 const playNewOrderSound = () => {
   try {
     const audio = new Audio("/sounds/new-order.mp3");
-
     audio.volume = 1.0;
     audio.currentTime = 0;
-
-    audio.play().catch((error) => {
+    void audio.play().catch((error) => {
       console.error("새 주문 알림음 재생 오류:", error);
     });
   } catch (error) {
@@ -35,1054 +31,446 @@ const playNewOrderSound = () => {
   }
 };
 
-// ==================================================
-// ⏰ 주문 시간 표시
-// ==================================================
-
-const getOrderTime = (createdAt: string) => {
-  const date = new Date(createdAt);
-
-  return date.toLocaleTimeString("ko-KR", {
+const getOrderTime = (createdAt: string) =>
+  new Date(createdAt).toLocaleTimeString("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
   });
-};
 
 const getElapsedTime = (createdAt: string) => {
-  const diff = Date.now() - new Date(createdAt).getTime();
-
+  const diff = Math.max(0, Date.now() - new Date(createdAt).getTime());
   const minutes = Math.floor(diff / 60000);
   const seconds = Math.floor((diff % 60000) / 1000);
-
-  if (minutes > 0) {
-    return `${minutes}분 전`;
-  }
-
-  return `${seconds}초 전`;
+  return minutes > 0 ? `${minutes}분 전` : `${seconds}초 전`;
 };
 
 export default function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [makingOrders, setMakingOrders] = useState<Order[]>([]);
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
-  const [recallingId, setRecallingId] = useState<number | null>(null);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   const [pickupId, setPickupId] = useState<number | null>(null);
-
-  // 시간 표시를 갱신하기 위한 상태
+  const [recallingId, setRecallingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [, setCurrentTime] = useState(Date.now());
 
-  // ==================================================
-  // 초기 데이터
-  // ==================================================
+  const fetchData = async () => {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
-  const fetchInitialData = async () => {
-    const tenMinutesAgo = new Date(
-      Date.now() - 10 * 60 * 1000
-    ).toISOString();
-
-    const [pendingResult, makingResult, completedResult] = await Promise.all([
+    const [activeResult, completedResult] = await Promise.all([
       supabase
         .from("orders")
         .select("*")
-        .eq("status", "pending")
-        .order("created_at", {
-          ascending: true,
-        }),
-
-      supabase
-        .from("orders")
-        .select("*")
-        .eq("status", "making")
+        .in("status", ["pending", "confirmed", "preparing"])
         .order("created_at", { ascending: true }),
-
       supabase
         .from("orders")
         .select("*")
         .eq("status", "completed")
-        .not("completed_at", "is", null)
         .gte("completed_at", tenMinutesAgo)
-        .order("created_at", {
-          ascending: false,
-        }),
+        .order("completed_at", { ascending: false }),
     ]);
 
-    if (pendingResult.error) {
-      console.error(
-        "주문 불러오기 오류:",
-        pendingResult.error
-      );
+    if (activeResult.error) {
+      console.error("주문 불러오기 오류:", activeResult.error);
     } else {
-      setOrders(pendingResult.data ?? []);
-    }
-
-    if (makingResult.error) {
-      console.error("제조 중 주문 불러오기 오류:", makingResult.error);
-    } else {
-      setMakingOrders(makingResult.data ?? []);
+      setOrders((activeResult.data ?? []) as Order[]);
     }
 
     if (completedResult.error) {
-      console.error(
-        "완료 주문 불러오기 오류:",
-        completedResult.error
-      );
+      console.error("완료 주문 불러오기 오류:", completedResult.error);
     } else {
-      setCompletedOrders(
-        completedResult.data ?? []
-      );
+      setCompletedOrders((completedResult.data ?? []) as Order[]);
     }
 
     setLoading(false);
   };
 
-  // ==================================================
-  // 완료 주문 10분 만료 정리
-  // ==================================================
-
-  const removeExpiredCompletedOrders = () => {
-    const tenMinutesAgo =
-      Date.now() - 10 * 60 * 1000;
-
-    setCompletedOrders(
-      (currentOrders) =>
-        currentOrders.filter(
-          (order) =>
-            order.completed_at &&
-            new Date(
-              order.completed_at
-            ).getTime() > tenMinutesAgo
-        )
-    );
-  };
-
-  // ==================================================
-  // Realtime
-  // ==================================================
-
   useEffect(() => {
-    fetchInitialData();
-
-    // ----------------------------------------------
-    // ⏰ 주문 시간 실시간 갱신
-    // ----------------------------------------------
-
-    const timeInterval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-
-    // ----------------------------------------------
-    // Supabase Realtime
-    // ----------------------------------------------
+    fetchData();
+    const timeInterval = setInterval(() => setCurrentTime(Date.now()), 1000);
 
     const channel = supabase
       .channel("kitchen-orders")
-
-      // ==============================================
-      // 새 주문
-      // ==============================================
-
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "orders",
-        },
+        { event: "INSERT", schema: "public", table: "orders" },
         (payload) => {
-          const newOrder =
-            payload.new as Order;
-
-          if (
-            newOrder.status === "pending"
-          ) {
-            // 🔊 새 주문 MP3
-            playNewOrderSound();
-
-            setOrders(
-              (currentOrders) => {
-                // 중복 방지
-                if (
-                  currentOrders.some(
-                    (order) =>
-                      order.id ===
-                      newOrder.id
-                  )
-                ) {
-                  return currentOrders;
-                }
-
-                return [
-                  ...currentOrders,
-                  newOrder,
-                ].sort(
-                  (a, b) =>
-                    new Date(
-                      a.created_at
-                    ).getTime() -
-                    new Date(
-                      b.created_at
-                    ).getTime()
-                );
-              }
+          const newOrder = payload.new as Order;
+          if (newOrder.status === "pending") playNewOrderSound();
+          setOrders((current) => {
+            if (current.some((order) => order.id === newOrder.id)) return current;
+            if (!["pending", "confirmed", "preparing"].includes(newOrder.status)) return current;
+            return [...current, newOrder].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             );
-          }
+          });
         }
       )
-
-      // ==============================================
-      // 주문 업데이트
-      // ==============================================
-
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "orders",
-        },
+        { event: "UPDATE", schema: "public", table: "orders" },
         (payload) => {
-          const updatedOrder =
-            payload.new as Order;
-
-          // ==========================================
-          // pending → making (주문 확인)
-          // ==========================================
-
-          if (updatedOrder.status === "making") {
-            setOrders((currentOrders) =>
-              currentOrders.filter(
-                (order) => order.id !== updatedOrder.id
-              )
-            );
-
-            setMakingOrders((currentOrders) => {
-              const exists = currentOrders.some(
-                (order) => order.id === updatedOrder.id
-              );
-
-              if (exists) {
-                return currentOrders.map((order) =>
-                  order.id === updatedOrder.id
-                    ? updatedOrder
-                    : order
+          const updatedOrder = payload.new as Order;
+          setOrders((current) => {
+            const active = ["pending", "confirmed", "preparing"].includes(updatedOrder.status);
+            const exists = current.some((order) => order.id === updatedOrder.id);
+            if (!active) return current.filter((order) => order.id !== updatedOrder.id);
+            return exists
+              ? current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order))
+              : [...current, updatedOrder].sort(
+                  (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                 );
-              }
+          });
 
-              return [...currentOrders, updatedOrder].sort(
-                (a, b) =>
-                  new Date(a.created_at).getTime() -
-                  new Date(b.created_at).getTime()
-              );
+          if (updatedOrder.status === "completed") {
+            setCompletedOrders((current) => {
+              const exists = current.some((order) => order.id === updatedOrder.id);
+              return exists
+                ? current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order))
+                : [updatedOrder, ...current];
             });
-
-            return;
-          }
-
-          // ==========================================
-          // making → completed (음료 완성)
-          // ==========================================
-
-          if (
-            updatedOrder.status ===
-            "completed"
-          ) {
-            // 제조 대기에서 즉시 제거
-            setOrders(
-              (currentOrders) =>
-                currentOrders.filter(
-                  (order) =>
-                    order.id !==
-                    updatedOrder.id
-                )
-            );
-
-            setMakingOrders((currentOrders) =>
-              currentOrders.filter(
-                (order) => order.id !== updatedOrder.id
-              )
-            );
-
-            // 완료 목록에 추가
-            setCompletedOrders(
-              (currentOrders) => {
-                const exists =
-                  currentOrders.some(
-                    (order) =>
-                      order.id ===
-                      updatedOrder.id
-                  );
-
-                if (exists) {
-                  return currentOrders.map(
-                    (order) =>
-                      order.id ===
-                      updatedOrder.id
-                        ? updatedOrder
-                        : order
-                  );
-                }
-
-                return [
-                  updatedOrder,
-                  ...currentOrders,
-                ];
-              }
-            );
-
-            return;
-          }
-
-          // ==========================================
-          // completed → 다른 상태
-          // ==========================================
-
-          setCompletedOrders(
-            (currentOrders) =>
-              currentOrders.filter(
-                (order) =>
-                  order.id !==
-                  updatedOrder.id
-              )
-          );
-
-          // ==========================================
-          // pending 주문 변경
-          // ==========================================
-
-          if (
-            updatedOrder.status ===
-            "pending"
-          ) {
-            setOrders(
-              (currentOrders) =>
-                currentOrders.map(
-                  (order) =>
-                    order.id ===
-                    updatedOrder.id
-                      ? updatedOrder
-                      : order
-                )
-            );
+          } else if (updatedOrder.status === "picked_up") {
+            setCompletedOrders((current) => current.filter((order) => order.id !== updatedOrder.id));
           }
         }
       )
-
-      // ==============================================
-      // 주문 삭제
-      // ==============================================
-
       .on(
         "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "orders",
-        },
+        { event: "DELETE", schema: "public", table: "orders" },
         (payload) => {
-          const deletedId =
-            Number(payload.old.id);
-
-          setOrders(
-            (currentOrders) =>
-              currentOrders.filter(
-                (order) =>
-                  order.id !==
-                  deletedId
-              )
-          );
-
-          setMakingOrders(
-            (currentOrders) =>
-              currentOrders.filter(
-                (order) =>
-                  order.id !==
-                  deletedId
-              )
-          );
-
-          setCompletedOrders(
-            (currentOrders) =>
-              currentOrders.filter(
-                (order) =>
-                  order.id !==
-                  deletedId
-              )
-          );
+          const deletedId = Number((payload.old as { id: number }).id);
+          setOrders((current) => current.filter((order) => order.id !== deletedId));
+          setCompletedOrders((current) => current.filter((order) => order.id !== deletedId));
+          setSelectedIds((current) => current.filter((id) => id !== deletedId));
         }
       )
+      .subscribe((status) => console.log("주문 Realtime 상태:", status));
 
-      .subscribe((status) => {
-        console.log(
-          "주문 Realtime 상태:",
-          status
-        );
-      });
-
-    // 30초마다 10분 지난 완료 주문 제거
-    const expiryInterval =
-      setInterval(() => {
-        removeExpiredCompletedOrders();
-      }, 30000);
+    const expiryInterval = setInterval(() => {
+      setCompletedOrders((current) =>
+        current.filter(
+          (order) =>
+            order.completed_at &&
+            new Date(order.completed_at).getTime() > Date.now() - 10 * 60 * 1000
+        )
+      );
+    }, 30000);
 
     return () => {
       clearInterval(timeInterval);
       clearInterval(expiryInterval);
-      supabase.removeChannel(
-        channel
-      );
+      supabase.removeChannel(channel);
     };
   }, []);
 
-  // ==================================================
-  // 👀 주문 확인 / 제조 시작
-  // pending → making
-  // ==================================================
-
-  const startMakingOrder = async (id: number) => {
+  const updateStatus = async (id: number, status: OrderStatus) => {
     setUpdatingId(id);
+    const updates: Partial<Order> = { status };
+    if (status === "completed") {
+      updates.completed_at = new Date().toISOString();
+      updates.call_count = 0;
+    }
 
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        status: "making",
-      })
-      .eq("id", id)
-      .eq("status", "pending");
-
+    const { error } = await supabase.from("orders").update(updates).eq("id", id);
     if (error) {
-      console.error("주문 확인 처리 오류:", error);
-      alert("주문 확인 처리에 실패했습니다.");
+      console.error("주문 상태 변경 오류:", error);
+      alert("주문 상태 변경에 실패했습니다.");
       setUpdatingId(null);
       return;
     }
 
-    setOrders((currentOrders) =>
-      currentOrders.filter((order) => order.id !== id)
+    setOrders((current) =>
+      status === "completed" || status === "picked_up"
+        ? current.filter((order) => order.id !== id)
+        : current.map((order) => (order.id === id ? { ...order, status } : order))
     );
-
-    const confirmedOrder = orders.find((order) => order.id === id);
-
-    if (confirmedOrder) {
-      setMakingOrders((currentOrders) => [
-        ...currentOrders,
-        {
-          ...confirmedOrder,
-          status: "making",
-        },
-      ]);
-    }
-
+    setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
     setUpdatingId(null);
   };
 
-  // ==================================================
-  // 음료 완성
-  // ==================================================
-
-  const completeOrder = async (
-    id: number
-  ) => {
-    setUpdatingId(id);
+  const completeSelectedOrders = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkUpdating(true);
+    const ids = [...selectedIds];
+    const completedAt = new Date().toISOString();
 
     const { error } = await supabase
       .from("orders")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-        call_count: 0,
-      })
-      .eq("id", id);
+      .update({ status: "completed", completed_at: completedAt, call_count: 0 })
+      .in("id", ids)
+      .in("status", ["confirmed", "preparing"]);
 
     if (error) {
-      console.error(
-        "주문 완료 처리 오류:",
-        error
-      );
-
-      alert(
-        "주문 완료 처리에 실패했습니다."
-      );
-
-      setUpdatingId(null);
+      console.error("선택 주문 완료 처리 오류:", error);
+      alert("선택한 주문 완료 처리에 실패했습니다.");
+      setBulkUpdating(false);
       return;
     }
 
-    // 화면에서 즉시 제거
-    setOrders(
-      (currentOrders) =>
-        currentOrders.filter(
-          (order) =>
-            order.id !== id
-        )
-    );
-
-    setUpdatingId(null);
+    setOrders((current) => current.filter((order) => !ids.includes(order.id)));
+    setSelectedIds([]);
+    await fetchData();
+    setBulkUpdating(false);
   };
-
-  // ==================================================
-  // ☕ 수령 완료
-  // ==================================================
 
   const pickupOrder = async (id: number) => {
     setPickupId(id);
-
     const { error } = await supabase
       .from("orders")
-      .update({
-        status: "picked_up",
-      })
+      .update({ status: "picked_up" })
       .eq("id", id)
       .eq("status", "completed");
 
     if (error) {
-      console.error(
-        "수령 완료 처리 오류:",
-        error
-      );
-
-      alert(
-        "수령 완료 처리에 실패했습니다."
-      );
-
+      console.error("수령 완료 처리 오류:", error);
+      alert("수령 완료 처리에 실패했습니다.");
       setPickupId(null);
       return;
     }
 
-    setCompletedOrders(
-      (currentOrders) =>
-        currentOrders.filter(
-          (order) => order.id !== id
-        )
-    );
-
+    setCompletedOrders((current) => current.filter((order) => order.id !== id));
     setPickupId(null);
   };
 
-  // ==================================================
-  // 📢 다시 호출
-  // ==================================================
-
-  const recallOrder = async (
-    order: Order
-  ) => {
+  const recallOrder = async (order: Order) => {
     setRecallingId(order.id);
-
-    const newCallCount =
-      (order.call_count ?? 0) + 1;
-
+    const newCallCount = (order.call_count ?? 0) + 1;
     const { error } = await supabase
       .from("orders")
-      .update({
-        call_count: newCallCount,
-      })
+      .update({ call_count: newCallCount })
       .eq("id", order.id)
       .eq("status", "completed");
 
     if (error) {
-      console.error(
-        "재호출 오류:",
-        error
-      );
-
-      alert(
-        "재호출에 실패했습니다."
-      );
-
+      console.error("재호출 오류:", error);
+      alert("재호출에 실패했습니다.");
       setRecallingId(null);
       return;
     }
 
-    // 화면 즉시 반영
-    setCompletedOrders(
-      (currentOrders) =>
-        currentOrders.map(
-          (currentOrder) =>
-            currentOrder.id ===
-            order.id
-              ? {
-                  ...currentOrder,
-                  call_count:
-                    newCallCount,
-                }
-              : currentOrder
-        )
+    setCompletedOrders((current) =>
+      current.map((item) => (item.id === order.id ? { ...item, call_count: newCallCount } : item))
     );
-
     setRecallingId(null);
   };
 
-  // ==================================================
-  // 화면
-  // ==================================================
+  const activeOrders = orders;
+  const confirmOrders = activeOrders.filter((order) => order.status === "pending");
+  const preparingOrders = activeOrders.filter(
+    (order) => order.status === "confirmed" || order.status === "preparing"
+  );
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  };
+
+  const toggleAllPreparing = () => {
+    const ids = preparingOrders.map((order) => order.id);
+    setSelectedIds((current) => (ids.every((id) => current.includes(id)) ? [] : ids));
+  };
 
   return (
     <main className="min-h-screen bg-[#F8F5EF] px-6 py-8">
       <div className="mx-auto max-w-7xl">
-
-        {/* =========================
-            상단
-        ========================= */}
-
-        <header className="mb-8">
-          <div className="flex items-center justify-between">
-
-            <div>
-              <div className="flex items-center gap-3">
-
-                <span className="text-5xl">
-                  ☕
-                </span>
-
-                <h1 className="text-4xl font-bold text-[#3E2723]">
-                  샬롬커피
-                </h1>
-
-              </div>
-
-              <p className="mt-3 text-xl text-gray-500">
-                제조자 주문 확인
-              </p>
+        <header className="mb-8 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <span className="text-5xl">☕</span>
+              <h1 className="text-4xl font-bold text-[#3E2723]">샬롬커피</h1>
             </div>
-
-            <div className="rounded-2xl bg-white px-6 py-4 shadow">
-
-              <p className="text-sm text-gray-500">
-                현재 주문
-              </p>
-
-              <p className="mt-1 text-3xl font-bold text-[#5D4037]">
-                {orders.length}건
-              </p>
-
-            </div>
-
+            <p className="mt-3 text-xl text-gray-500">제조자 주문 확인</p>
+          </div>
+          <div className="rounded-2xl bg-white px-6 py-4 shadow">
+            <p className="text-sm text-gray-500">현재 주문</p>
+            <p className="mt-1 text-3xl font-bold text-[#5D4037]">{activeOrders.length}건</p>
           </div>
         </header>
 
-        {/* =========================
-            제조 대기
-        ========================= */}
-
-        <section>
-
-          <div className="mb-5 flex items-center justify-between">
-
-            <h2 className="text-2xl font-bold text-[#3E2723]">
-              👨‍🍳 제조 대기
-            </h2>
-
-            <span className="text-gray-500">
-              {orders.length}건
-            </span>
-
+        {loading ? (
+          <div className="rounded-3xl bg-white p-12 text-center shadow-xl">
+            <div className="text-6xl">☕</div>
+            <p className="mt-5 text-2xl font-bold text-gray-700">주문을 불러오는 중...</p>
           </div>
-
-          {loading ? (
-
-            <div className="rounded-3xl bg-white p-12 text-center shadow-xl">
-
-              <div className="text-5xl">
-                ☕
+        ) : (
+          <>
+            <section>
+              <div className="mb-5 flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-[#3E2723]">🧾 주문 확인</h2>
+                <span className="text-gray-500">{confirmOrders.length}건</span>
               </div>
 
-              <p className="mt-5 text-2xl font-bold text-gray-700">
-                주문을 불러오는 중...
-              </p>
+              {confirmOrders.length === 0 ? (
+                <div className="rounded-3xl bg-white p-8 text-center shadow">
+                  <p className="text-lg text-gray-400">확인할 새 주문이 없습니다.</p>
+                </div>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2">
+                  {confirmOrders.map((order) => (
+                    <div key={order.id} className="rounded-[2rem] bg-white p-8 shadow-xl">
+                      <div className="flex items-center justify-between border-b-2 border-gray-100 pb-5">
+                        <div>
+                          <p className="text-sm text-gray-400">주문자</p>
+                          <h2 className="mt-1 text-3xl font-bold text-[#3E2723]">{order.name}님</h2>
+                        </div>
+                        <div className="rounded-full bg-[#FFF3E8] px-4 py-2 text-sm font-bold text-[#5D4037]">
+                          새 주문
+                        </div>
+                      </div>
+                      <div className="py-6">
+                        <div className="flex items-center gap-4">
+                          <span className="text-6xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</span>
+                          <div>
+                            <h3 className="text-3xl font-bold text-gray-800">{order.menu}</h3>
+                            <p className="mt-2 text-xl text-gray-500">
+                              {order.menu === "아메리카노" ? `${order.temperature} · ${order.taste}` : "바로 준비"}
+                            </p>
+                            <p className="mt-2 text-lg font-bold text-gray-700">{order.quantity}잔 · {getOrderTime(order.created_at)}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => updateStatus(order.id, "confirmed")}
+                        disabled={updatingId === order.id}
+                        className="w-full rounded-2xl bg-[#5D4037] py-6 text-2xl font-bold text-white disabled:opacity-50"
+                      >
+                        {updatingId === order.id ? "처리 중..." : "✅ 주문 확인"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
-            </div>
-
-          ) : orders.length === 0 ? (
-
-            <div className="rounded-3xl bg-white p-12 text-center shadow-xl">
-
-              <div className="text-6xl">
-                ☕
+            <section className="mt-12">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-[#3E2723]">👨‍🍳 제조 중</h2>
+                  <p className="mt-1 text-sm text-gray-400">완성한 주문은 여러 개를 선택해서 한 번에 호출할 수 있습니다.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={toggleAllPreparing}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#5D4037] shadow"
+                  >
+                    {preparingOrders.length > 0 && preparingOrders.every((order) => selectedIds.includes(order.id)) ? "전체 해제" : "전체 선택"}
+                  </button>
+                  <span className="text-gray-500">{preparingOrders.length}건</span>
+                </div>
               </div>
 
-              <h2 className="mt-5 text-2xl font-bold text-gray-700">
-                현재 들어온 주문이 없습니다.
-              </h2>
-
-              <p className="mt-2 text-lg text-gray-400">
-                새로운 주문이 들어오면 자동으로 표시됩니다.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="grid gap-6 md:grid-cols-2">
-
-              {orders.map((order) => (
-
-                <div
-                  key={order.id}
-                  className="rounded-[2rem] bg-white p-8 shadow-xl"
-                >
-
-                  {/* 주문자 */}
-
-                  <div className="flex items-center justify-between border-b-2 border-gray-100 pb-5">
-
-                    <div>
-
-                      <p className="text-sm font-medium text-gray-400">
-                        주문자
-                      </p>
-
-                      <h2 className="mt-1 text-3xl font-bold text-[#3E2723]">
-                        {order.name}님
-                      </h2>
-
-                    </div>
-
-                    <div className="rounded-full bg-[#F3EAE4] px-4 py-2 text-sm font-bold text-[#5D4037]">
-                      제조 대기
-                    </div>
-
-                  </div>
-
-                  {/* 주문 시간 */}
-
-                  <div className="mt-5 flex items-center justify-between rounded-2xl bg-[#FFF8F3] px-5 py-4">
-
-                    <div>
-                      <p className="text-sm text-gray-400">
-                        주문 시간
-                      </p>
-
-                      <p className="mt-1 text-xl font-bold text-[#5D4037]">
-                        {getOrderTime(
-                          order.completed_at ?? order.created_at
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-full bg-[#F3EAE4] px-4 py-2 text-base font-bold text-[#795548]">
-                      {getElapsedTime(
-                        order.created_at
+              {preparingOrders.length === 0 ? (
+                <div className="rounded-3xl bg-white p-8 text-center shadow">
+                  <p className="text-lg text-gray-400">제조 중인 주문이 없습니다.</p>
+                </div>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2">
+                  {preparingOrders.map((order) => (
+                    <div key={order.id} className={`rounded-[2rem] bg-white p-8 shadow-xl ${selectedIds.includes(order.id) ? "ring-4 ring-[#5D4037]" : ""}`}>
+                      <div className="flex items-start justify-between gap-4">
+                        <label className="flex cursor-pointer items-start gap-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(order.id)}
+                            onChange={() => toggleSelected(order.id)}
+                            className="mt-1 h-8 w-8 accent-[#5D4037]"
+                          />
+                          <div>
+                            <p className="text-sm text-gray-400">주문자</p>
+                            <h2 className="mt-1 text-3xl font-bold text-[#3E2723]">{order.name}님</h2>
+                            <p className="mt-2 text-base text-gray-400">{getElapsedTime(order.created_at)}</p>
+                          </div>
+                        </label>
+                        <div className="rounded-full bg-[#F3EAE4] px-4 py-2 text-sm font-bold text-[#5D4037]">{order.status === "confirmed" ? "제조 준비" : "제조 중"}</div>
+                      </div>
+                      <div className="mt-6 flex items-center gap-4 border-t pt-6">
+                        <span className="text-6xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</span>
+                        <div>
+                          <h3 className="text-3xl font-bold text-gray-800">{order.menu}</h3>
+                          <p className="mt-2 text-xl text-gray-500">
+                            {order.menu === "아메리카노" ? `${order.temperature} · ${order.taste}` : "바로 준비"}
+                          </p>
+                          <p className="mt-2 text-xl font-bold text-gray-700">{order.quantity}잔</p>
+                        </div>
+                      </div>
+                      {order.status === "confirmed" ? (
+                        <button
+                          onClick={() => updateStatus(order.id, "preparing")}
+                          disabled={updatingId === order.id}
+                          className="mt-6 w-full rounded-2xl bg-[#795548] py-5 text-xl font-bold text-white disabled:opacity-50"
+                        >
+                          {updatingId === order.id ? "처리 중..." : "▶ 제조 시작"}
+                        </button>
+                      ) : (
+                        <p className="mt-6 rounded-2xl bg-[#F8F5EF] py-4 text-center text-lg font-bold text-[#795548]">제조 중입니다</p>
                       )}
                     </div>
-
-                  </div>
-
-                  {/* 메뉴 */}
-
-                  <div className="py-7">
-
-                    <div className="flex items-center gap-4">
-
-                      <span className="text-6xl">
-                        {order.menu ===
-                        "아메리카노"
-                          ? "☕"
-                          : "🍑"}
-                      </span>
-
-                      <div>
-
-                        <h3 className="text-3xl font-bold text-gray-800">
-                          {order.menu}
-                        </h3>
-
-                        <p className="mt-2 text-xl text-gray-500">
-
-                          {order.menu ===
-                          "아메리카노"
-                            ? `${order.temperature} · ${order.taste}`
-                            : "복숭아 아이스티"}
-
-                        </p>
-
-                      </div>
-
-                    </div>
-
-                    {/* 수량 */}
-
-                    <div className="mt-7 flex items-center justify-between rounded-2xl bg-[#F8F5EF] px-6 py-5">
-
-                      <span className="text-xl text-gray-500">
-                        수량
-                      </span>
-
-                      <span className="text-3xl font-bold text-[#3E2723]">
-                        {order.quantity}잔
-                      </span>
-
-                    </div>
-
-                  </div>
-
-                  {/* 완성 버튼 */}
-
-                  <button
-                    onClick={() =>
-                      startMakingOrder(order.id)
-                    }
-                    disabled={updatingId === order.id}
-                    className="w-full rounded-2xl bg-[#5D4037] py-6 text-2xl font-bold text-white transition hover:bg-[#4E342E] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {updatingId === order.id
-                      ? "확인 중..."
-                      : "👀 주문 확인"}
-                  </button>
-
+                  ))}
                 </div>
-
-              ))}
-
-            </div>
-
-          )}
-
-        </section>
-
-        {/* =========================
-            제조 중
-        ========================= */}
-        {makingOrders.length > 0 && (
-          <section className="mt-12">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-[#3E2723]">
-                  👨‍🍳 제조 중
-                </h2>
-                <p className="mt-1 text-sm text-gray-400">
-                  주문 확인 후 제조 중인 음료입니다.
-                </p>
-              </div>
-
-              <span className="text-gray-500">
-                {makingOrders.length}건
-              </span>
-            </div>
-
-            <div className="grid gap-5 md:grid-cols-2">
-              {makingOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="rounded-[2rem] bg-white p-7 shadow-lg"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-400">제조 중</p>
-                      <h3 className="mt-1 text-3xl font-bold text-[#3E2723]">
-                        {order.name}님
-                      </h3>
-                    </div>
-                    <span className="rounded-full bg-[#F3EAE4] px-4 py-2 text-sm font-bold text-[#5D4037]">
-                      제조 중
-                    </span>
-                  </div>
-
-                  <div className="mt-5 rounded-2xl bg-[#F8F5EF] p-5">
-                    <div className="flex items-center gap-4">
-                      <span className="text-5xl">
-                        {order.menu === "아메리카노" ? "☕" : "🍑"}
-                      </span>
-                      <div>
-                        <p className="text-2xl font-bold text-gray-800">
-                          {order.menu}
-                        </p>
-                        <p className="mt-1 text-gray-500">
-                          {order.menu === "아메리카노"
-                            ? `${order.temperature} · ${order.taste}`
-                            : "복숭아 아이스티"}
-                        </p>
-                        <p className="mt-2 text-lg font-bold text-gray-700">
-                          {order.quantity}잔
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => completeOrder(order.id)}
-                    disabled={updatingId === order.id}
-                    className="mt-5 w-full rounded-2xl bg-[#5D4037] py-5 text-xl font-bold text-white transition hover:bg-[#4E342E] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {updatingId === order.id
-                      ? "처리 중..."
-                      : "✅ 음료 완성"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* =========================
-            최근 완료
-        ========================= */}
-
-        <section className="mt-12">
-
-          <div className="mb-5 flex items-center justify-between">
-
-            <div>
-
-              <h2 className="text-2xl font-bold text-[#3E2723]">
-                📢 음료 나옴
-              </h2>
-
-              <p className="mt-1 text-sm text-gray-400">
-                완료 후 10분 동안 재호출할 수 있습니다.
-              </p>
-
-            </div>
-
-            <span className="text-gray-500">
-              {completedOrders.length}건
-            </span>
-
-          </div>
-
-          {completedOrders.length === 0 ? (
-
-            <div className="rounded-3xl bg-white p-10 text-center shadow">
-
-              <p className="text-lg text-gray-400">
-                최근 완성된 음료가 없습니다.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-
-              {completedOrders.map(
-                (order) => (
-
-                  <div
-                    key={order.id}
-                    className="rounded-[2rem] bg-white p-7 shadow-lg"
-                  >
-
-                    <div className="flex items-center justify-between">
-
-                      <div>
-
-                        <p className="text-sm text-gray-400">
-                          음료 완성
-                        </p>
-
-                        <h3 className="mt-1 text-3xl font-bold text-[#3E2723]">
-                          {order.name}님
-                        </h3>
-
-                      </div>
-
-                      <span className="text-5xl">
-                        {order.menu ===
-                        "아메리카노"
-                          ? "☕"
-                          : "🍑"}
-                      </span>
-
-                    </div>
-
-                    {/* 완료 시간 */}
-
-                    <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#FFF8F3] px-4 py-3">
-
-                      <span className="text-sm text-gray-400">
-                        완료 시간
-                      </span>
-
-                      <span className="font-bold text-[#795548]">
-                        {getOrderTime(
-                          order.completed_at ?? order.created_at
-                        )}
-                      </span>
-
-                    </div>
-
-                    <div className="mt-5 rounded-2xl bg-[#F8F5EF] p-5">
-
-                      <p className="text-xl font-bold text-[#5D4037]">
-                        {order.menu}
-                      </p>
-
-                      {order.menu ===
-                        "아메리카노" && (
-                        <p className="mt-1 text-gray-500">
-                          {order.temperature} ·{" "}
-                          {order.taste}
-                        </p>
-                      )}
-
-                      <p className="mt-2 text-lg font-bold text-gray-700">
-                        {order.quantity}잔
-                      </p>
-
-                    </div>
-
-                    {/* 재호출 */}
-
-                    <button
-                      onClick={() =>
-                        recallOrder(
-                          order
-                        )
-                      }
-                      disabled={
-                        recallingId ===
-                        order.id
-                      }
-                      className="mt-5 w-full rounded-2xl border-2 border-[#5D4037] bg-white py-5 text-xl font-bold text-[#5D4037] transition hover:bg-[#F3EAE4] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-
-                      {recallingId ===
-                      order.id
-                        ? "호출 중..."
-                        : "📢 다시 호출"}
-
-                    </button>
-
-                    {order.call_count >
-                      0 && (
-                      <p className="mt-3 text-center text-sm text-gray-400">
-                        다시 호출{" "}
-                        {order.call_count}
-                        회
-                      </p>
-                    )}
-
-                    {/* 수령 완료 */}
-
-                    <button
-                      onClick={() =>
-                        pickupOrder(order.id)
-                      }
-                      disabled={
-                        pickupId === order.id
-                      }
-                      className="mt-3 w-full rounded-2xl bg-[#6D4C41] py-5 text-xl font-bold text-white transition hover:bg-[#5D4037] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {pickupId === order.id
-                        ? "처리 중..."
-                        : "☕ 수령 완료"}
-                    </button>
-
-                  </div>
-
-                )
               )}
 
-            </div>
+              <button
+                onClick={completeSelectedOrders}
+                disabled={selectedIds.length === 0 || bulkUpdating}
+                className="mt-6 w-full rounded-2xl bg-[#5D4037] py-6 text-2xl font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {bulkUpdating ? "완료 처리 중..." : `✅ 선택한 ${selectedIds.length}개 음료 완성`}
+              </button>
+            </section>
 
-          )}
+            <section className="mt-12">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-[#3E2723]">📢 음료 나옴</h2>
+                  <p className="mt-1 text-sm text-gray-400">완료 후 10분 동안 재호출할 수 있습니다.</p>
+                </div>
+                <span className="text-gray-500">{completedOrders.length}건</span>
+              </div>
 
-        </section>
-
-        <p className="mt-10 text-center text-sm text-gray-400">
-          ⚡ 주문 변경사항은 실시간으로 반영됩니다.
-        </p>
-
+              {completedOrders.length === 0 ? (
+                <div className="rounded-3xl bg-white p-8 text-center shadow">
+                  <p className="text-lg text-gray-400">최근 완성된 음료가 없습니다.</p>
+                </div>
+              ) : (
+                <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                  {completedOrders.map((order) => (
+                    <div key={order.id} className="rounded-[2rem] bg-white p-7 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-gray-400">음료 완성</p>
+                          <h3 className="mt-1 text-3xl font-bold text-[#3E2723]">{order.name}님</h3>
+                        </div>
+                        <span className="text-5xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</span>
+                      </div>
+                      <div className="mt-5 rounded-2xl bg-[#F8F5EF] p-5">
+                        <p className="text-xl font-bold text-[#5D4037]">{order.menu}</p>
+                        {order.menu === "아메리카노" && <p className="mt-1 text-gray-500">{order.temperature} · {order.taste}</p>}
+                        <p className="mt-2 text-lg font-bold text-gray-700">{order.quantity}잔</p>
+                      </div>
+                      <button
+                        onClick={() => recallOrder(order)}
+                        disabled={recallingId === order.id}
+                        className="mt-5 w-full rounded-2xl border-2 border-[#5D4037] bg-white py-5 text-xl font-bold text-[#5D4037] disabled:opacity-50"
+                      >
+                        {recallingId === order.id ? "호출 중..." : "📢 다시 호출"}
+                      </button>
+                      <button
+                        onClick={() => pickupOrder(order.id)}
+                        disabled={pickupId === order.id}
+                        className="mt-3 w-full rounded-2xl bg-[#795548] py-5 text-xl font-bold text-white disabled:opacity-50"
+                      >
+                        {pickupId === order.id ? "처리 중..." : "☕ 수령 완료"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </div>
     </main>
   );

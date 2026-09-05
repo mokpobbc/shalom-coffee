@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type Step =
@@ -22,8 +22,51 @@ export default function Home() {
   const [taste, setTaste] = useState<"고소한 맛" | "신맛" | null>(null);
   const [quantity, setQuantity] = useState(1);
 
+  useEffect(() => {
+    const loadOperatingState = async () => {
+      const { data, error } = await supabase
+        .from("cafe_settings")
+        .select("is_open")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (error) {
+        console.error("운영 상태 확인 오류:", error);
+      } else if (data) {
+        setIsOpen(data.is_open);
+      }
+
+      setCheckingOpenState(false);
+    };
+
+    loadOperatingState();
+
+    const channel = supabase
+      .channel("kiosk-cafe-settings")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "cafe_settings",
+          filter: "id=eq.1",
+        },
+        (payload) => {
+          const setting = payload.new as { is_open: boolean };
+          setIsOpen(setting.is_open);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [checkingOpenState, setCheckingOpenState] = useState(true);
 
   const handleNameNext = () => {
     if (!name.trim()) {
@@ -84,6 +127,12 @@ export default function Home() {
 
   // 실제 주문 저장
   const saveOrder = async () => {
+    if (!isOpen) {
+      alert("현재 샬롬커피 주문이 마감되었습니다.");
+      resetOrder();
+      return;
+    }
+
     if (!name.trim() || !menu) {
       alert("주문 정보를 확인해주세요.");
       return;
@@ -99,7 +148,7 @@ export default function Home() {
 
     const { error } = await supabase.from("orders").insert({
       name: name.trim(),
-      menu: menu === "americano" ? "아메리카노" : "복숭아 아이스티",
+      menu: menu === "americano" ? "아메리카노" : "사과 아이스티",
       temperature: menu === "americano" ? temperature : null,
       taste: menu === "americano" ? taste : null,
       quantity,
@@ -121,11 +170,52 @@ export default function Home() {
     // 주문 완료 화면
     setStep("complete");
 
-    // 2.5초 후 자동으로 첫 화면
+    // 주문 완료 후 약 3초 뒤 자동으로 첫 화면
     setTimeout(() => {
       resetOrder();
-    }, 7000);
+    }, 3000);
   };
+
+  // =========================
+  // 운영 상태 확인 중
+  // =========================
+  if (checkingOpenState) {
+    return (
+      <main className="min-h-screen bg-[#F8F5EF] flex items-center justify-center px-6">
+        <div className="rounded-[2rem] bg-white p-12 text-center shadow-xl">
+          <div className="text-7xl">☕</div>
+          <h1 className="mt-6 text-4xl font-bold text-[#3E2723]">샬롬커피</h1>
+          <p className="mt-4 text-xl text-gray-500">
+            운영 상태를 확인하는 중입니다...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 주문 마감
+  // =========================
+  if (!isOpen) {
+    return (
+      <main className="min-h-screen bg-[#F8F5EF] flex items-center justify-center px-6">
+        <div className="w-full max-w-4xl text-center">
+          <div className="rounded-[2rem] bg-white p-14 shadow-xl">
+            <div className="text-8xl">☕</div>
+            <h1 className="mt-7 text-5xl font-bold text-[#3E2723]">
+              현재 주문이 마감되었습니다.
+            </h1>
+            <p className="mt-6 text-2xl text-gray-500">
+              샬롬커피 운영이 시작되면 다시 주문해주세요.
+            </p>
+          </div>
+          <p className="mt-7 text-base text-gray-400">
+            주님의교회 청년청소년부 · 샬롬커피
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   // =========================
   // ① 주문 완료
@@ -147,12 +237,23 @@ export default function Home() {
             </p>
 
             <div className="mt-9 rounded-3xl bg-[#F8F5EF] p-8">
-              <p className="text-2xl font-medium text-gray-700">
-                음료가 준비되면
-              </p>
+              {menu === "americano" ? (
+                <>
+                  <p className="text-2xl font-bold text-[#5D4037]">
+                    커피는 한 잔 추출까지 약 6분 정도 걸립니다.
+                  </p>
+                  <p className="mt-3 text-xl font-medium text-gray-700">
+                    주문이 밀리면 약 10분 정도 소요될 수 있습니다.
+                  </p>
+                </>
+              ) : (
+                <p className="text-2xl font-bold text-[#5D4037]">
+                  사과 아이스티는 바로 준비됩니다.
+                </p>
+              )}
 
-              <p className="mt-3 text-2xl font-bold text-[#5D4037]">
-                교회 본당 TV 화면으로 알려드립니다.
+              <p className="mt-6 text-2xl font-medium text-gray-700">
+                주문하신 음료는 카운터에서 받아주세요.
               </p>
             </div>
 
@@ -186,6 +287,16 @@ export default function Home() {
             <p className="mt-5 text-2xl text-[#795548]">
               따뜻한 마음을 담은 무료 커피
             </p>
+
+            <div className="mx-auto mt-6 max-w-3xl rounded-3xl border-2 border-[#E7D7C8] bg-white px-7 py-6 text-left shadow-sm">
+              <p className="text-2xl font-bold text-[#5D4037]">주문 전 안내</p>
+              <p className="mt-3 text-2xl leading-10 text-gray-600">
+                ☕ 커피는 한 잔 추출까지 약 6분 정도 걸립니다. 주문이 밀리면 약 10분 정도 소요될 수 있습니다.
+              </p>
+              <p className="mt-2 text-2xl leading-10 text-gray-600">
+                🍎 사과 아이스티는 바로 준비됩니다.
+              </p>
+            </div>
           </div>
 
           <div className="rounded-[2rem] bg-white p-10 shadow-xl">
@@ -266,10 +377,10 @@ export default function Home() {
               onClick={() => selectMenu("peach")}
               className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
             >
-              <div className="mb-5 text-8xl">🍑</div>
+              <div className="mb-5 text-8xl">🍎</div>
 
               <h2 className="text-4xl font-bold text-[#3E2723]">
-                복숭아 아이스티
+                사과 아이스티
               </h2>
 
               <p className="mt-4 text-2xl text-gray-500">
@@ -360,7 +471,27 @@ export default function Home() {
                     : "border-gray-200 bg-white"
                 }`}
               >
-                <div className="text-7xl">🫘</div>
+                <div className="flex justify-center">
+                  <svg
+                    width="78"
+                    height="78"
+                    viewBox="0 0 78 78"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M25 12c-10 7-15 20-12 34 3 14 13 23 25 20 12-3 20-15 19-29-1-15-10-27-21-29-4-1-8 0-11 4Z"
+                      fill="#795548"
+                    />
+                    <path
+                      d="M25 17c8 10 12 22 11 37"
+                      fill="none"
+                      stroke="#F8F5EF"
+                      strokeWidth="5"
+                      strokeLinecap="round"
+                      opacity="0.9"
+                    />
+                  </svg>
+                </div>
 
                 <div className="mt-3 text-2xl font-bold text-gray-800">
                   고소한 맛
@@ -413,7 +544,7 @@ export default function Home() {
         <div className="w-full max-w-4xl">
           <div className="mb-8 text-center">
             <div className="text-8xl">
-              {menu === "americano" ? "☕" : "🍑"}
+              {menu === "americano" ? "☕" : "🍎"}
             </div>
 
             <h1 className="mt-5 text-5xl font-bold text-[#3E2723]">
@@ -423,7 +554,7 @@ export default function Home() {
             <p className="mt-4 text-2xl text-[#795548]">
               {menu === "americano"
                 ? `${temperature} · ${taste}`
-                : "복숭아 아이스티"}
+                : "사과 아이스티"}
             </p>
           </div>
 
@@ -503,7 +634,7 @@ export default function Home() {
               <span className="text-2xl font-bold text-gray-800">
                 {menu === "americano"
                   ? "☕ 아메리카노"
-                  : "🍑 복숭아 아이스티"}
+                  : "🍎 사과 아이스티"}
               </span>
             </div>
 
