@@ -11,7 +11,7 @@ type Step =
   | "confirm"
   | "complete";
 
-type Menu = "americano" | "peach";
+type Menu = "americano" | "apple" | "plum";
 
 export default function Home() {
   const [step, setStep] = useState<Step>("name");
@@ -148,7 +148,7 @@ export default function Home() {
 
     const { error } = await supabase.from("orders").insert({
       name: name.trim(),
-      menu: menu === "americano" ? "아메리카노" : "사과 아이스티",
+      menu: menu === "americano" ? "아메리카노" : menu === "apple" ? "사과 아이스티" : "매실 아이스티",
       temperature: menu === "americano" ? temperature : null,
       taste: menu === "americano" ? taste : null,
       quantity,
@@ -238,17 +238,27 @@ export default function Home() {
 
             <div className="mt-9 rounded-3xl bg-[#F8F5EF] p-8">
               {menu === "americano" ? (
-                <>
+                temperature === "HOT" ? (
+                  <>
+                    <p className="text-2xl font-bold text-[#5D4037]">
+                      따뜻한 아메리카노는 한 잔 추출까지 약 6분 정도 걸립니다.
+                    </p>
+                    <p className="mt-3 text-xl font-medium text-gray-700">
+                      주문이 밀리면 약 10분 정도 소요될 수 있습니다.
+                    </p>
+                  </>
+                ) : (
                   <p className="text-2xl font-bold text-[#5D4037]">
-                    커피는 한 잔 추출까지 약 6분 정도 걸립니다.
+                    아이스 콜드브루는 바로 준비됩니다.
                   </p>
-                  <p className="mt-3 text-xl font-medium text-gray-700">
-                    주문이 밀리면 약 10분 정도 소요될 수 있습니다.
-                  </p>
-                </>
-              ) : (
+                )
+              ) : menu === "apple" ? (
                 <p className="text-2xl font-bold text-[#5D4037]">
                   사과 아이스티는 바로 준비됩니다.
+                </p>
+              ) : (
+                <p className="text-2xl font-bold text-[#5D4037]">
+                  매실 아이스티는 바로 준비됩니다.
                 </p>
               )}
 
@@ -291,10 +301,13 @@ export default function Home() {
             <div className="mx-auto mt-6 max-w-3xl rounded-3xl border-2 border-[#E7D7C8] bg-white px-7 py-6 text-left shadow-sm">
               <p className="text-2xl font-bold text-[#5D4037]">주문 전 안내</p>
               <p className="mt-3 text-2xl leading-10 text-gray-600">
-                ☕ 커피는 한 잔 추출까지 약 6분 정도 걸립니다. 주문이 밀리면 약 10분 정도 소요될 수 있습니다.
+                🔥 따뜻한 아메리카노는 약 6분 정도 걸립니다. 주문이 밀리면 약 10분 정도 소요될 수 있습니다.
               </p>
               <p className="mt-2 text-2xl leading-10 text-gray-600">
-                🍎 사과 아이스티는 바로 준비됩니다.
+                🧊 아이스 콜드브루는 바로 준비됩니다.
+              </p>
+              <p className="mt-2 text-2xl leading-10 text-gray-600">
+                🍎 사과 아이스티와 🧃 매실 아이스티는 바로 준비됩니다.
               </p>
             </div>
           </div>
@@ -357,7 +370,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid gap-7 md:grid-cols-2">
+          <div className="grid gap-7 md:grid-cols-3">
             <button
               onClick={() => selectMenu("americano")}
               className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
@@ -369,12 +382,12 @@ export default function Home() {
               </h2>
 
               <p className="mt-4 text-2xl text-gray-500">
-                HOT / ICE
+                🔥 HOT 아메리카노 · 🧊 ICE 콜드브루
               </p>
             </button>
 
             <button
-              onClick={() => selectMenu("peach")}
+              onClick={() => selectMenu("apple")}
               className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
             >
               <div className="mb-5 text-8xl">🍎</div>
@@ -384,7 +397,22 @@ export default function Home() {
               </h2>
 
               <p className="mt-4 text-2xl text-gray-500">
-                시원하게 즐겨보세요
+                바로 준비됩니다
+              </p>
+            </button>
+
+            <button
+              onClick={() => selectMenu("plum")}
+              className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <div className="mb-5 text-8xl">🧃</div>
+
+              <h2 className="text-4xl font-bold text-[#3E2723]">
+                매실 아이스티
+              </h2>
+
+              <p className="mt-4 text-2xl text-gray-500">
+                바로 준비됩니다
               </p>
             </button>
           </div>
@@ -544,7 +572,7 @@ export default function Home() {
         <div className="w-full max-w-4xl">
           <div className="mb-8 text-center">
             <div className="text-8xl">
-              {menu === "americano" ? "☕" : "🍎"}
+              {menu === "americano" ? "☕" : menu === "apple" ? "🍎" : "🧃"}
             </div>
 
             <h1 className="mt-5 text-5xl font-bold text-[#3E2723]">
@@ -553,8 +581,12 @@ export default function Home() {
 
             <p className="mt-4 text-2xl text-[#795548]">
               {menu === "americano"
-                ? `${temperature} · ${taste}`
-                : "사과 아이스티"}
+                ? temperature === "ICE"
+                  ? `🧊 콜드브루 · ${taste}`
+                  : `${temperature} · ${taste}`
+                : menu === "apple"
+                  ? "사과 아이스티"
+                  : "매실 아이스티"}
             </p>
           </div>
 
@@ -633,8 +665,12 @@ export default function Home() {
 
               <span className="text-2xl font-bold text-gray-800">
                 {menu === "americano"
-                  ? "☕ 아메리카노"
-                  : "🍎 사과 아이스티"}
+                  ? temperature === "ICE"
+                    ? "🧊 콜드브루"
+                    : "☕ 아메리카노"
+                  : menu === "apple"
+                    ? "🍎 사과 아이스티"
+                    : "🧃 매실 아이스티"}
               </span>
             </div>
 
