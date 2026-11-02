@@ -16,6 +16,13 @@ type Order = {
   completed_at: string | null;
 };
 
+const getMenuLabel = (order: Order) => {
+  if (order.menu === "아메리카노" && order.temperature === "HOT") return "핸드드립 핫 아메리카노";
+  if (order.menu === "아메리카노" && order.temperature === "ICE") return "콜드브루 아이스 아메리카노";
+  if (order.menu === "사과 아이스티") return "사과 아이스티";
+  return order.menu;
+};
+
 const getLocalDateString = () => {
   const now = new Date();
   const offset = now.getTimezoneOffset() * 60000;
@@ -146,15 +153,22 @@ export default function AdminPage() {
       0
     );
 
-    const americanoCups = orders
-      .filter((order) => order.menu === "아메리카노")
+    const hotAmericanoCups = orders
+      .filter((order) => order.menu === "아메리카노" && order.temperature === "HOT")
       .reduce(
         (sum, order) => sum + Number(order.quantity || 0),
         0
       );
 
-    const peachCups = orders
-      .filter((order) => order.menu === "복숭아 아이스티")
+    const coldBrewCups = orders
+      .filter((order) => order.menu === "아메리카노" && order.temperature === "ICE")
+      .reduce(
+        (sum, order) => sum + Number(order.quantity || 0),
+        0
+      );
+
+    const appleTeaCups = orders
+      .filter((order) => order.menu === "사과 아이스티")
       .reduce(
         (sum, order) => sum + Number(order.quantity || 0),
         0
@@ -169,37 +183,14 @@ export default function AdminPage() {
       0
     );
 
-    const hotCups = orders
-      .filter(
-        (order) =>
-          order.menu === "아메리카노" &&
-          order.temperature === "HOT"
-      )
-      .reduce(
-        (sum, order) => sum + Number(order.quantity || 0),
-        0
-      );
-
-    const iceCups = orders
-      .filter(
-        (order) =>
-          order.menu === "아메리카노" &&
-          order.temperature === "ICE"
-      )
-      .reduce(
-        (sum, order) => sum + Number(order.quantity || 0),
-        0
-      );
-
     return {
       totalOrders,
       totalCups,
-      americanoCups,
-      peachCups,
+      hotAmericanoCups,
+      coldBrewCups,
+      appleTeaCups,
       pickedUpOrders: pickedUpOrders.length,
       pickedUpCups,
-      hotCups,
-      iceCups,
     };
   }, [orders]);
 
@@ -384,7 +375,7 @@ export default function AdminPage() {
               </div>
 
               <p className="mt-3 text-xl text-gray-500">
-                관리자 전용 정산 페이지
+                관리자 전용 정산 페이지 · 이번 행사는 모든 음료 무료 제공입니다.
               </p>
             </div>
 
@@ -425,7 +416,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-3xl bg-white p-7 shadow-lg">
             <p className="text-base text-gray-400">총 주문</p>
             <p className="mt-2 text-4xl font-bold text-[#3E2723]">
@@ -443,43 +434,58 @@ export default function AdminPage() {
           </div>
 
           <div className="rounded-3xl bg-white p-7 shadow-lg">
-            <p className="text-base text-gray-400">아메리카노</p>
+            <p className="text-base text-gray-400">핸드드립 핫 아메리카노</p>
             <p className="mt-2 text-4xl font-bold text-[#5D4037]">
-              {stats.americanoCups}
+              {stats.hotAmericanoCups}
               <span className="ml-1 text-xl">잔</span>
             </p>
           </div>
 
           <div className="rounded-3xl bg-white p-7 shadow-lg">
             <p className="text-base text-gray-400">
-              복숭아 아이스티
+              콜드브루 아이스 아메리카노
             </p>
             <p className="mt-2 text-4xl font-bold text-[#5D4037]">
-              {stats.peachCups}
+              {stats.coldBrewCups}
               <span className="ml-1 text-xl">잔</span>
             </p>
+          </div>
+          <div className="rounded-3xl bg-white p-7 shadow-lg">
+            <p className="text-base text-gray-400">사과 아이스티</p>
+            <p className="mt-2 text-4xl font-bold text-[#5D4037]">
+              {stats.appleTeaCups}
+              <span className="ml-1 text-xl">잔</span>
+            </p>
+          </div>
+          <div className="rounded-3xl bg-white p-7 shadow-lg">
+            <p className="text-base text-gray-400">정산 금액 · 무료 제공</p>
+            <p className="mt-2 text-4xl font-bold text-[#5D4037]">0원</p>
           </div>
         </section>
 
         <section className="mt-6 grid gap-6 md:grid-cols-2">
           <div className="rounded-3xl bg-white p-7 shadow-lg">
             <h2 className="text-2xl font-bold text-[#3E2723]">
-              ☕ 아메리카노 상세
+              메뉴별 잔 수
             </h2>
 
             <div className="mt-6 space-y-4">
               <div className="flex items-center justify-between rounded-2xl bg-[#F8F5EF] px-5 py-4">
-                <span className="text-gray-500">🔥 HOT</span>
+                <span className="text-gray-500">🔥 핸드드립 핫 아메리카노</span>
                 <span className="text-xl font-bold text-gray-700">
-                  {stats.hotCups}잔
+                  {stats.hotAmericanoCups}잔
                 </span>
               </div>
 
               <div className="flex items-center justify-between rounded-2xl bg-[#F8F5EF] px-5 py-4">
-                <span className="text-gray-500">🧊 ICE</span>
+                <span className="text-gray-500">🧊 콜드브루 아이스 아메리카노</span>
                 <span className="text-xl font-bold text-gray-700">
-                  {stats.iceCups}잔
+                  {stats.coldBrewCups}잔
                 </span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-[#F8F5EF] px-5 py-4">
+                <span className="text-gray-500">🍎 사과 아이스티</span>
+                <span className="text-xl font-bold text-gray-700">{stats.appleTeaCups}잔</span>
               </div>
             </div>
           </div>
@@ -610,18 +616,10 @@ export default function AdminPage() {
                           {order.name}님
                         </td>
 
-                        <td className="px-5 py-4 font-bold text-gray-800">
-                          {order.menu === "아메리카노"
-                            ? "☕ 아메리카노"
-                            : "🍑 복숭아 아이스티"}
-                        </td>
+                        <td className="px-5 py-4 font-bold text-gray-800">{getMenuLabel(order)}</td>
 
                         <td className="px-5 py-4 text-gray-500">
-                          {order.menu === "아메리카노"
-                            ? `${order.temperature ?? ""} · ${
-                                order.taste ?? ""
-                              }`
-                            : "-"}
+                          {order.menu === "아메리카노" && order.temperature === "HOT" ? "핸드드립" : order.menu === "아메리카노" && order.temperature === "ICE" ? "바로 준비" : "-"}
                         </td>
 
                         <td className="px-5 py-4 font-bold text-gray-700">

@@ -6,12 +6,11 @@ import { supabase } from "@/lib/supabase";
 type Step =
   | "name"
   | "menu"
-  | "options"
   | "quantity"
   | "confirm"
   | "complete";
 
-type Menu = "americano" | "apple" | "plum";
+type Menu = "hot-americano" | "cold-brew-americano" | "apple";
 
 export default function Home() {
   const [step, setStep] = useState<Step>("name");
@@ -19,7 +18,6 @@ export default function Home() {
   const [name, setName] = useState("");
   const [menu, setMenu] = useState<Menu | null>(null);
   const [temperature, setTemperature] = useState<"HOT" | "ICE" | null>(null);
-  const [taste, setTaste] = useState<"고소한 맛" | "신맛" | null>(null);
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
@@ -80,29 +78,7 @@ export default function Home() {
   const selectMenu = (selectedMenu: Menu) => {
     setMenu(selectedMenu);
     setQuantity(1);
-
-    if (selectedMenu === "americano") {
-      setTemperature(null);
-      setTaste(null);
-      setStep("options");
-    } else {
-      setTemperature(null);
-      setTaste(null);
-      setStep("quantity");
-    }
-  };
-
-  const handleOptionsNext = () => {
-    if (!temperature) {
-      alert("HOT 또는 ICE를 선택해주세요.");
-      return;
-    }
-
-    if (!taste) {
-      alert("맛을 선택해주세요.");
-      return;
-    }
-
+    setTemperature(selectedMenu === "hot-americano" ? "HOT" : selectedMenu === "cold-brew-americano" ? "ICE" : null);
     setStep("quantity");
   };
 
@@ -119,7 +95,6 @@ export default function Home() {
     setName("");
     setMenu(null);
     setTemperature(null);
-    setTaste(null);
     setQuantity(1);
     setIsSaving(false);
     setErrorMessage("");
@@ -138,7 +113,7 @@ export default function Home() {
       return;
     }
 
-    if (menu === "americano" && (!temperature || !taste)) {
+    if ((menu === "hot-americano" && temperature !== "HOT") || (menu === "cold-brew-americano" && temperature !== "ICE")) {
       alert("아메리카노 옵션을 확인해주세요.");
       return;
     }
@@ -148,9 +123,9 @@ export default function Home() {
 
     const { error } = await supabase.from("orders").insert({
       name: name.trim(),
-      menu: menu === "americano" ? "아메리카노" : menu === "apple" ? "사과 아이스티" : "매실 아이스티",
-      temperature: menu === "americano" ? temperature : null,
-      taste: menu === "americano" ? taste : null,
+      menu: menu === "apple" ? "사과 아이스티" : "아메리카노",
+      temperature: menu === "apple" ? null : temperature,
+      taste: null,
       quantity,
       status: "pending",
     });
@@ -237,28 +212,18 @@ export default function Home() {
             </p>
 
             <div className="mt-9 rounded-3xl bg-[#F8F5EF] p-8">
-              {menu === "americano" ? (
-                temperature === "HOT" ? (
+              {menu === "hot-americano" ? (
                   <>
-                    <p className="text-2xl font-bold text-[#5D4037]">
-                      따뜻한 아메리카노는 한 잔 추출까지 약 6분 정도 걸립니다.
-                    </p>
+                    <p className="text-2xl font-bold text-[#5D4037]">핸드드립 핫 아메리카노는 한 잔 추출까지 약 6분 정도 걸립니다.</p>
                     <p className="mt-3 text-xl font-medium text-gray-700">
                       주문이 밀리면 약 10분 정도 소요될 수 있습니다.
                     </p>
                   </>
-                ) : (
-                  <p className="text-2xl font-bold text-[#5D4037]">
-                    아이스 콜드브루는 바로 준비됩니다.
-                  </p>
-                )
-              ) : menu === "apple" ? (
-                <p className="text-2xl font-bold text-[#5D4037]">
-                  사과 아이스티는 바로 준비됩니다.
-                </p>
+              ) : menu === "cold-brew-americano" ? (
+                <p className="text-2xl font-bold text-[#5D4037]">콜드브루 아이스 아메리카노는 바로 준비됩니다.</p>
               ) : (
                 <p className="text-2xl font-bold text-[#5D4037]">
-                  매실 아이스티는 바로 준비됩니다.
+                  사과 아이스티는 바로 준비됩니다.
                 </p>
               )}
 
@@ -304,10 +269,10 @@ export default function Home() {
                 🔥 따뜻한 아메리카노는 약 6분 정도 걸립니다. 주문이 밀리면 약 10분 정도 소요될 수 있습니다.
               </p>
               <p className="mt-2 text-2xl leading-10 text-gray-600">
-                🧊 아이스 콜드브루는 바로 준비됩니다.
+                🧊 콜드브루 아이스 아메리카노는 바로 준비됩니다.
               </p>
               <p className="mt-2 text-2xl leading-10 text-gray-600">
-                🍎 사과 아이스티와 🧃 매실 아이스티는 바로 준비됩니다.
+                🍎 사과 아이스티는 바로 준비됩니다.
               </p>
             </div>
           </div>
@@ -372,18 +337,27 @@ export default function Home() {
 
           <div className="grid gap-7 md:grid-cols-3">
             <button
-              onClick={() => selectMenu("americano")}
+              onClick={() => selectMenu("hot-americano")}
               className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
             >
               <div className="mb-5 text-8xl">☕</div>
 
               <h2 className="text-4xl font-bold text-[#3E2723]">
-                아메리카노
+                핸드드립 핫 아메리카노
               </h2>
 
               <p className="mt-4 text-2xl text-gray-500">
-                🔥 HOT 아메리카노 · 🧊 ICE 콜드브루
+                약 6분 소요 · 따뜻하게
               </p>
+            </button>
+
+            <button
+              onClick={() => selectMenu("cold-brew-americano")}
+              className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <div className="mb-5 text-8xl">🧊</div>
+              <h2 className="text-4xl font-bold text-[#3E2723]">콜드브루 아이스 아메리카노</h2>
+              <p className="mt-4 text-2xl text-gray-500">바로 준비됩니다</p>
             </button>
 
             <button
@@ -401,20 +375,6 @@ export default function Home() {
               </p>
             </button>
 
-            <button
-              onClick={() => selectMenu("plum")}
-              className="min-h-[320px] rounded-[2rem] bg-white p-10 text-center shadow-xl transition hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <div className="mb-5 text-8xl">🧃</div>
-
-              <h2 className="text-4xl font-bold text-[#3E2723]">
-                매실 아이스티
-              </h2>
-
-              <p className="mt-4 text-2xl text-gray-500">
-                바로 준비됩니다
-              </p>
-            </button>
           </div>
 
           <button
@@ -429,141 +389,6 @@ export default function Home() {
   }
 
   // =========================
-  // ④ 아메리카노 옵션
-  // =========================
-  if (step === "options") {
-    return (
-      <main className="min-h-screen bg-[#F8F5EF] px-6 py-8">
-        <div className="mx-auto max-w-4xl">
-          <div className="mb-7 text-center">
-            <div className="text-7xl">☕</div>
-
-            <h1 className="mt-3 text-5xl font-bold text-[#3E2723]">
-              아메리카노
-            </h1>
-
-            <p className="mt-4 text-2xl text-[#795548]">
-              {name}님, 원하는 옵션을 선택해주세요.
-            </p>
-          </div>
-
-          <section className="mb-6 rounded-[2rem] bg-white p-8 shadow-xl">
-            <h2 className="mb-6 text-3xl font-bold text-gray-800">
-              ① 온도를 선택해주세요
-            </h2>
-
-            <div className="grid grid-cols-2 gap-5">
-              <button
-                onClick={() => setTemperature("HOT")}
-                className={`min-h-[180px] rounded-3xl border-4 p-7 text-center transition ${
-                  temperature === "HOT"
-                    ? "border-[#5D4037] bg-[#F3EAE4]"
-                    : "border-gray-200 bg-white"
-                }`}
-              >
-                <div className="text-7xl">🔥</div>
-
-                <div className="mt-3 text-3xl font-bold text-gray-800">
-                  HOT
-                </div>
-              </button>
-
-              <button
-                onClick={() => setTemperature("ICE")}
-                className={`min-h-[180px] rounded-3xl border-4 p-7 text-center transition ${
-                  temperature === "ICE"
-                    ? "border-[#5D4037] bg-[#F3EAE4]"
-                    : "border-gray-200 bg-white"
-                }`}
-              >
-                <div className="text-7xl">🧊</div>
-
-                <div className="mt-3 text-3xl font-bold text-gray-800">
-                  ICE
-                </div>
-              </button>
-            </div>
-          </section>
-
-          <section className="rounded-[2rem] bg-white p-8 shadow-xl">
-            <h2 className="mb-6 text-3xl font-bold text-gray-800">
-              ② 맛을 선택해주세요
-            </h2>
-
-            <div className="grid grid-cols-2 gap-5">
-              <button
-                onClick={() => setTaste("고소한 맛")}
-                className={`min-h-[180px] rounded-3xl border-4 p-7 text-center transition ${
-                  taste === "고소한 맛"
-                    ? "border-[#5D4037] bg-[#F3EAE4]"
-                    : "border-gray-200 bg-white"
-                }`}
-              >
-                <div className="flex justify-center">
-                  <svg
-                    width="78"
-                    height="78"
-                    viewBox="0 0 78 78"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M25 12c-10 7-15 20-12 34 3 14 13 23 25 20 12-3 20-15 19-29-1-15-10-27-21-29-4-1-8 0-11 4Z"
-                      fill="#795548"
-                    />
-                    <path
-                      d="M25 17c8 10 12 22 11 37"
-                      fill="none"
-                      stroke="#F8F5EF"
-                      strokeWidth="5"
-                      strokeLinecap="round"
-                      opacity="0.9"
-                    />
-                  </svg>
-                </div>
-
-                <div className="mt-3 text-2xl font-bold text-gray-800">
-                  고소한 맛
-                </div>
-              </button>
-
-              <button
-                onClick={() => setTaste("신맛")}
-                className={`min-h-[180px] rounded-3xl border-4 p-7 text-center transition ${
-                  taste === "신맛"
-                    ? "border-[#5D4037] bg-[#F3EAE4]"
-                    : "border-gray-200 bg-white"
-                }`}
-              >
-                <div className="text-7xl">🍋</div>
-
-                <div className="mt-3 text-2xl font-bold text-gray-800">
-                  신맛
-                </div>
-              </button>
-            </div>
-          </section>
-
-          <div className="mt-7 flex gap-5">
-            <button
-              onClick={() => setStep("menu")}
-              className="flex-1 rounded-3xl bg-white py-6 text-2xl font-bold text-gray-600 shadow-xl"
-            >
-              ← 이전
-            </button>
-
-            <button
-              onClick={handleOptionsNext}
-              className="flex-1 rounded-3xl bg-[#5D4037] py-6 text-2xl font-bold text-white shadow-xl"
-            >
-              다음 →
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // =========================
   // ⑤ 수량
   // =========================
   if (step === "quantity") {
@@ -572,7 +397,7 @@ export default function Home() {
         <div className="w-full max-w-4xl">
           <div className="mb-8 text-center">
             <div className="text-8xl">
-              {menu === "americano" ? "☕" : menu === "apple" ? "🍎" : "🧃"}
+              {menu === "apple" ? "🍎" : menu === "cold-brew-americano" ? "🧊" : "☕"}
             </div>
 
             <h1 className="mt-5 text-5xl font-bold text-[#3E2723]">
@@ -580,13 +405,7 @@ export default function Home() {
             </h1>
 
             <p className="mt-4 text-2xl text-[#795548]">
-              {menu === "americano"
-                ? temperature === "ICE"
-                  ? `🧊 콜드브루 · ${taste}`
-                  : `${temperature} · ${taste}`
-                : menu === "apple"
-                  ? "사과 아이스티"
-                  : "매실 아이스티"}
+              {menu === "hot-americano" ? "핸드드립 핫 아메리카노" : menu === "cold-brew-americano" ? "콜드브루 아이스 아메리카노" : "사과 아이스티"}
             </p>
           </div>
 
@@ -617,7 +436,7 @@ export default function Home() {
           <div className="mt-7 flex gap-5">
             <button
               onClick={() =>
-                setStep(menu === "americano" ? "options" : "menu")
+                setStep("menu")
               }
               className="flex-1 rounded-3xl bg-white py-6 text-2xl font-bold text-gray-600 shadow-xl"
             >
@@ -664,35 +483,9 @@ export default function Home() {
               <span className="text-2xl text-gray-500">메뉴</span>
 
               <span className="text-2xl font-bold text-gray-800">
-                {menu === "americano"
-                  ? temperature === "ICE"
-                    ? "🧊 콜드브루"
-                    : "☕ 아메리카노"
-                  : menu === "apple"
-                    ? "🍎 사과 아이스티"
-                    : "🧃 매실 아이스티"}
+                {menu === "hot-americano" ? "☕ 핸드드립 핫 아메리카노" : menu === "cold-brew-americano" ? "🧊 콜드브루 아이스 아메리카노" : "🍎 사과 아이스티"}
               </span>
             </div>
-
-            {menu === "americano" && (
-              <>
-                <div className="mt-6 flex items-center justify-between">
-                  <span className="text-2xl text-gray-500">온도</span>
-
-                  <span className="text-2xl font-bold text-gray-800">
-                    {temperature}
-                  </span>
-                </div>
-
-                <div className="mt-6 flex items-center justify-between">
-                  <span className="text-2xl text-gray-500">맛</span>
-
-                  <span className="text-2xl font-bold text-gray-800">
-                    {taste}
-                  </span>
-                </div>
-              </>
-            )}
 
             <div className="mt-6 flex items-center justify-between">
               <span className="text-2xl text-gray-500">수량</span>

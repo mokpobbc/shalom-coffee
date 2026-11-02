@@ -18,6 +18,17 @@ type Order = {
   call_count: number;
 };
 
+const getMenuLabel = (order: Order) => {
+  if (order.menu === "아메리카노" && order.temperature === "HOT") return "핸드드립 핫 아메리카노";
+  if (order.menu === "아메리카노" && order.temperature === "ICE") return "콜드브루 아이스 아메리카노";
+  return order.menu;
+};
+
+const getMenuIcon = (order: Order) =>
+  order.menu === "아메리카노"
+    ? order.temperature === "ICE" ? "🧊" : "☕"
+    : "🍎";
+
 const playNewOrderSound = () => {
   try {
     const audio = new Audio("/sounds/new-order.mp3");
@@ -322,11 +333,11 @@ export default function KitchenPage() {
                       </div>
                       <div className="py-6">
                         <div className="flex items-center gap-4">
-                          <span className="text-6xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</span>
+                          <span className="text-6xl">{getMenuIcon(order)}</span>
                           <div>
-                            <h3 className="text-3xl font-bold text-gray-800">{order.menu}</h3>
+                            <h3 className="text-3xl font-bold text-gray-800">{getMenuLabel(order)}</h3>
                             <p className="mt-2 text-xl text-gray-500">
-                              {order.menu === "아메리카노" ? `${order.temperature} · ${order.taste}` : "바로 준비"}
+                              {order.menu === "아메리카노" && order.temperature === "HOT" ? "핸드드립" : "바로 준비"}
                             </p>
                             <p className="mt-2 text-lg font-bold text-gray-700">{order.quantity}잔 · {getOrderTime(order.created_at)}</p>
                           </div>
@@ -387,11 +398,11 @@ export default function KitchenPage() {
                         <div className="rounded-full bg-[#F3EAE4] px-4 py-2 text-sm font-bold text-[#5D4037]">{order.status === "confirmed" ? "제조 준비" : "제조 중"}</div>
                       </div>
                       <div className="mt-6 flex items-center gap-4 border-t pt-6">
-                        <span className="text-6xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</span>
+                        <span className="text-6xl">{getMenuIcon(order)}</span>
                         <div>
-                          <h3 className="text-3xl font-bold text-gray-800">{order.menu}</h3>
+                          <h3 className="text-3xl font-bold text-gray-800">{getMenuLabel(order)}</h3>
                           <p className="mt-2 text-xl text-gray-500">
-                            {order.menu === "아메리카노" ? `${order.temperature} · ${order.taste}` : "바로 준비"}
+                            {order.menu === "아메리카노" && order.temperature === "HOT" ? "핸드드립" : "바로 준비"}
                           </p>
                           <p className="mt-2 text-xl font-bold text-gray-700">{order.quantity}잔</p>
                         </div>
@@ -443,11 +454,11 @@ export default function KitchenPage() {
                           <p className="text-sm text-gray-400">음료 완성</p>
                           <h3 className="mt-1 text-3xl font-bold text-[#3E2723]">{order.name}님</h3>
                         </div>
-                        <span className="text-5xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</span>
+                        <span className="text-5xl">{getMenuIcon(order)}</span>
                       </div>
                       <div className="mt-5 rounded-2xl bg-[#F8F5EF] p-5">
-                        <p className="text-xl font-bold text-[#5D4037]">{order.menu}</p>
-                        {order.menu === "아메리카노" && <p className="mt-1 text-gray-500">{order.temperature} · {order.taste}</p>}
+                        <p className="text-xl font-bold text-[#5D4037]">{getMenuLabel(order)}</p>
+                        {order.menu === "아메리카노" && order.temperature === "HOT" && <p className="mt-1 text-gray-500">핸드드립</p>}
                         <p className="mt-2 text-lg font-bold text-gray-700">{order.quantity}잔</p>
                       </div>
                       <button

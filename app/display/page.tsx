@@ -7,11 +7,23 @@ type Order = {
   id: number;
   name: string;
   menu: string;
+  temperature: string | null;
   quantity: number;
   status: string;
   created_at: string;
   call_count: number;
 };
+
+const getMenuLabel = (order: Order) => {
+  if (order.menu === "아메리카노" && order.temperature === "HOT") return "핸드드립 핫 아메리카노";
+  if (order.menu === "아메리카노" && order.temperature === "ICE") return "콜드브루 아이스 아메리카노";
+  return order.menu;
+};
+
+const getMenuIcon = (order: Order) =>
+  order.menu === "아메리카노"
+    ? order.temperature === "ICE" ? "🧊" : "☕"
+    : "🍎";
 
 const CALL_SCREEN_TIME = 10000;
 const DISPLAY_TIME = 10 * 60 * 1000;
@@ -43,7 +55,7 @@ export default function DisplayPage() {
     const cutoff = new Date(Date.now() - DISPLAY_TIME).toISOString();
     const { data, error } = await supabase
       .from("orders")
-      .select("id, name, menu, quantity, status, created_at, call_count")
+      .select("id, name, menu, temperature, quantity, status, created_at, call_count")
       .eq("status", "completed")
       .gte("completed_at", cutoff)
       .order("completed_at", { ascending: false });
@@ -207,10 +219,10 @@ export default function DisplayPage() {
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {orders.map((order) => (
                 <div key={order.id} className="rounded-[2.5rem] bg-white p-8 text-center shadow-xl">
-                  <div className="text-6xl">{order.menu === "아메리카노" ? "☕" : "🍎"}</div>
+                  <div className="text-6xl">{getMenuIcon(order)}</div>
                   <h3 className="mt-5 text-6xl font-black text-[#3E2723]">{order.name}님</h3>
                   <div className="mt-6 rounded-3xl bg-[#F8F5EF] px-6 py-5">
-                    <p className="text-4xl font-black text-[#5D4037]">{order.menu}</p>
+                    <p className="text-4xl font-black text-[#5D4037]">{getMenuLabel(order)}</p>
                     <p className="mt-2 text-3xl font-bold text-gray-500">{order.quantity}잔</p>
                   </div>
                   <p className="mt-5 text-3xl font-black text-[#795548]">음료 나왔습니다!</p>
