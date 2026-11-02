@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -129,6 +130,12 @@ export default function AdminLoginPage() {
           >
             {loggingIn ? "로그인 중..." : "관리자 로그인"}
           </button>
+
+          <div className="mt-5 text-center">
+            <Link href="/admin/forgot-password" className="text-sm font-medium text-[#795548] underline">
+              비밀번호를 잊으셨나요?
+            </Link>
+          </div>
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-400">
